@@ -4,14 +4,14 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
-  ActivityIndicator,
+ActivityIndicator,
   Alert,
   ScrollView,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import Icon from "react-native-vector-icons/Ionicons";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const ProfileScreen = ({ navigation }: any) => {
   const [profile, setProfile] = useState<any>({});
@@ -28,7 +28,7 @@ const ProfileScreen = ({ navigation }: any) => {
       }
 
       const res = await axios.get(
-        "https://dialer.cxteqconnect.com/Haridialer/api/profile",
+        "https://hariteq.com/HariDialer/public/api/profile",
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -52,7 +52,7 @@ const ProfileScreen = ({ navigation }: any) => {
       if (!token) throw new Error("No token found");
 
       await axios.post(
-        "https://dialer.cxteqconnect.com/Haridialer/api/logout",
+        "https://hariteq.com/HariDialer/public/api/logout",
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );

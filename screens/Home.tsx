@@ -19,6 +19,8 @@ import {
 } from 'react-native-responsive-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CustomAlert from './CustomAlert';
+import { useCall } from '../context/CallContext';
+
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -30,6 +32,8 @@ const Home = () => {
 
   const userName = route.params?.Name || 'User';
   const [loading, setLoading] = useState(true);
+
+  const { call, setCall } = useCall();
 
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertTitle, setAlertTitle] = useState('');
@@ -68,7 +72,7 @@ const Home = () => {
         ]);
         setLoading(false);
       } catch (err) {
-        console.error(err);
+        console.error('Token loading error:', err);
         showAlert('Error', 'Failed to load token.');
         setLoading(false);
       }
@@ -77,10 +81,11 @@ const Home = () => {
     loadTokenAndFetch();
   }, []);
 
+
   const fetchDashboard = async (authToken: string) => {
     try {
       const res = await axios.get(
-        'https://dialer.cxteqconnect.com/Haridialer/api/dashboard',
+        'https://hariteq.com/HariDialer/public/api/dashboard',
         {
           headers: {
             Authorization: `Bearer ${authToken}`,
@@ -111,7 +116,7 @@ const Home = () => {
   const fetchWeeklyCalls = async (authToken: string) => {
     try {
       const res = await axios.get(
-        'https://dialer.cxteqconnect.com/Haridialer/api/weekly-calls',
+        'https://hariteq.com/HariDialer/public/api/weekly-calls',
         {
           headers: {
             Authorization: `Bearer ${authToken}`,
@@ -247,11 +252,11 @@ const Home = () => {
         ) : (
           <LineChart
            data={{
-   labels: weeklyData.map((item, index) => `${item.day}-${index}`),
+   labels: weeklyData.map(item => item.day ? item.day.substring(0, 3) : 'N/A'),
 
     datasets: [
       {
-        data: weeklyData.map(item => item.count),
+        data: weeklyData.map(item => typeof item.count === 'number' ? item.count : 0),
         strokeWidth: 2,
       },
               ],
@@ -458,4 +463,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
+  
 });

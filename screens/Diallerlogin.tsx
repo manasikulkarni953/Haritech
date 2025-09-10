@@ -52,7 +52,7 @@ const LoginScreen = () => {
     setIsLoading(true);
     try {
       const { data } = await axios.post(
-        'https://dialer.cxteqconnect.com/Haridialer/api/extensions/login',
+        'https://hariteq.com/HariDialer/public/api/extensions/login',
         { username: username.trim(), password: password.trim() },
       );
 

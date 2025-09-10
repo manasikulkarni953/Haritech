@@ -20,6 +20,10 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 
+// ✅ NEW IMPORTS
+import { Formik } from 'formik';
+import * as Yup from 'yup';
+
 const gradientColors = ['#b8e5eeff', '#e4ebf3ff'];
 
 type RootStackParamList = {
@@ -36,16 +40,21 @@ type AgentLoginScreenProp = NativeStackNavigationProp<
 const AgentLogin: React.FC = () => {
   const navigation = useNavigation<AgentLoginScreenProp>();
   const { width, height } = useWindowDimensions();
-
-  const [email, setEmail] = useState<string>('');
-  const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
 
-  const handleLogin = async () => {
+  // ✅ Yup validation schema
+  const validationSchema = Yup.object().shape({
+    email: Yup.string()
+      .email('Invalid email format')
+      .required('Email is required'),
+    password: Yup.string().min(6, 'Password too short').required('Password is required'),
+  });
+
+  const handleLogin = async (values: { email: string; password: string }) => {
     try {
       const response = await axios.post(
-        'https://dialer.cxteqconnect.com/Haridialer/api/login',
-        { email, password },
+        'https://hariteq.com/HariDialer/public/api/login',
+        { email: values.email, password: values.password },
         {
           headers: {
             'Content-Type': 'application/json',
@@ -69,20 +78,10 @@ const AgentLogin: React.FC = () => {
         await AsyncStorage.setItem('userId', Id.toString());
 
         if (extensionToken && extension) {
-          // Save extension info
           await AsyncStorage.setItem('extensionToken', extensionToken);
-          await AsyncStorage.setItem(
-            'extensionId',
-            extension?.id?.toString() || ''
-          );
-          await AsyncStorage.setItem(
-            'extensionUsername',
-            extension?.username || ''
-          );
-          await AsyncStorage.setItem(
-            'extensionPassword',
-            extension?.password || ''
-          );
+          await AsyncStorage.setItem('extensionId', extension?.id?.toString() || '');
+          await AsyncStorage.setItem('extensionUsername', extension?.username || '');
+          await AsyncStorage.setItem('extensionPassword', extension?.password || '');
         }
 
         Alert.alert('Login Success', `Welcome ${Name}`);
@@ -137,75 +136,101 @@ const AgentLogin: React.FC = () => {
                 Please Login to Your Account
               </Text>
 
-              {/* Email */}
-              <View style={styles.inputContainer}>
-                <Ionicons
-                  name="mail-outline"
-                  size={20}
-                  color="#666"
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  placeholder="Enter your email"
-                  placeholderTextColor="#999"
-                  style={[
-                    styles.inputField,
-                    { fontSize: width * 0.04, padding: width * 0.035 },
-                  ]}
-                  value={email}
-                  onChangeText={setEmail}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                />
-              </View>
-
-              {/* Password */}
-              <View style={styles.inputContainer}>
-                <Ionicons
-                  name="lock-closed-outline"
-                  size={20}
-                  color="#666"
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  placeholder="Enter your password"
-                  placeholderTextColor="#999"
-                  style={[
-                    styles.inputField,
-                    { fontSize: width * 0.04, padding: width * 0.035 },
-                  ]}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
-                >
-                  <Ionicons
-                    name={showPassword ? 'eye' : 'eye-off'}
-                    size={20}
-                    color="#666"
-                    style={styles.eyeIcon}
-                  />
-                </TouchableOpacity>
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.button,
-                  {
-                    paddingVertical: height * 0.018,
-                    marginTop: height * 0.02,
-                  },
-                ]}
-                onPress={handleLogin}
+              {/* ✅ Wrap Formik around your form */}
+              <Formik
+                initialValues={{ email: '', password: '' }}
+                validationSchema={validationSchema}
+                onSubmit={handleLogin}
               >
-                <Text
-                  style={[styles.buttonText, { fontSize: width * 0.045 }]}
-                >
-                  Log In
-                </Text>
-              </TouchableOpacity>
+                {({
+                  handleChange,
+                  handleBlur,
+                  handleSubmit,
+                  values,
+                  errors,
+                  touched,
+                }) => (
+                  <>
+                    {/* Email */}
+                    <View style={styles.inputContainer}>
+                      <Ionicons
+                        name="mail-outline"
+                        size={20}
+                        color="#666"
+                        style={styles.inputIcon}
+                      />
+                      <TextInput
+                        placeholder="Enter your email"
+                        placeholderTextColor="#999"
+                        style={[
+                          styles.inputField,
+                          { fontSize: width * 0.04, padding: width * 0.035 },
+                        ]}
+                        value={values.email}
+                        onChangeText={handleChange('email')}
+                        onBlur={handleBlur('email')}
+                        autoCapitalize="none"
+                        keyboardType="email-address"
+                      />
+                    </View>
+                    {touched.email && errors.email && (
+                      <Text style={styles.errorText}>{errors.email}</Text>
+                    )}
+
+                    {/* Password */}
+                    <View style={styles.inputContainer}>
+                      <Ionicons
+                        name="lock-closed-outline"
+                        size={20}
+                        color="#666"
+                        style={styles.inputIcon}
+                      />
+                      <TextInput
+                        placeholder="Enter your password"
+                        placeholderTextColor="#999"
+                        style={[
+                          styles.inputField,
+                          { fontSize: width * 0.04, padding: width * 0.035 },
+                        ]}
+                        value={values.password}
+                        onChangeText={handleChange('password')}
+                        onBlur={handleBlur('password')}
+                        secureTextEntry={!showPassword}
+                      />
+                      <TouchableOpacity
+                        onPress={() => setShowPassword(!showPassword)}
+                      >
+                        <Ionicons
+                          name={showPassword ? 'eye' : 'eye-off'}
+                          size={20}
+                          color="#666"
+                          style={styles.eyeIcon}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                    {touched.password && errors.password && (
+                      <Text style={styles.errorText}>{errors.password}</Text>
+                    )}
+
+                    <TouchableOpacity
+                      style={[
+                        styles.button,
+                        {
+                          paddingVertical: height * 0.018,
+                          marginTop: height * 0.02,
+                        },
+                      ]}
+                      onPress={handleSubmit as any}
+                    >
+                      <Text
+                        style={[styles.buttonText, { fontSize: width * 0.045 }]}
+                      >
+                        Log In
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </Formik>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -250,7 +275,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#ddd',
-    marginBottom: 20,
+    marginBottom: 10,
     width: '100%',
     paddingHorizontal: 10,
   },
@@ -268,7 +293,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     color: '#000',
-    marginBottom: 30,
+    marginBottom: 20,
   },
   eyeIcon: {
     padding: 8,
@@ -282,5 +307,11 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#fff',
     fontWeight: 'bold',
+  },
+  errorText: {
+    color: 'red',
+    fontSize: 12,
+    marginBottom: 8,
+    marginLeft: 5,
   },
 });

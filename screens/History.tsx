@@ -8,16 +8,17 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
-  SafeAreaView,
-} from 'react-native';
+  } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import moment from 'moment';
 import RNPickerSelect from 'react-native-picker-select';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { scale, verticalScale, moderateScale } from '../utils/scale';
 
-const API_URL = 'https://dialer.cxteqconnect.com/Haridialer/api/call-history';
+const API_URL = 'https://hariteq.com/HariDialer/public/api/call-history';
 
 export default function CallHistoryScreen() {
   const [fromDate, setFromDate] = useState('');
@@ -126,19 +127,19 @@ export default function CallHistoryScreen() {
     }
 
     return (
-      <View style={[styles.card, { borderLeftColor: borderColor, borderLeftWidth: 3 }]}>
+      <View style={[styles.card, { borderLeftColor: borderColor, borderLeftWidth: scale(3) }]}>
         <View style={styles.cardRow}>
           <View style={[styles.iconCircle, { backgroundColor: iconBg }]}>
-            <Ionicons name={iconName} size={20} color="#fff" />
+            <Ionicons name={iconName} size={scale(20)} color="#fff" />
           </View>
-          <View style={{ marginLeft: 10, flex: 1 }}>
+          <View style={{ marginLeft: scale(10), flex: 1 }}>
             <Text style={styles.phone}>{item.phone_no || '-'}</Text>
             <Text style={styles.duration}>{durationText}</Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={styles.region}>{item.region || 'India'}</Text>
             <Text style={styles.extension}>{item.extension || '-'}</Text>
-            <Ionicons name="chevron-down" size={18} color="#333" />
+            <Ionicons name="chevron-down" size={scale(18)} color="#333" />
           </View>
         </View>
       </View>
@@ -203,7 +204,7 @@ export default function CallHistoryScreen() {
                 onValueChange={setCallType}
                 value={callType}
                 style={{
-                  inputIOS: { color: '#000', padding: 10 },
+                  inputIOS: { color: '#000', padding: scale(10) },
                   inputAndroid: { color: '#000' },
                   placeholder: { color: '#999' },
                 }}
@@ -220,7 +221,7 @@ export default function CallHistoryScreen() {
                 onValueChange={setCallDisposition}
                 value={callDisposition}
                 style={{
-                  inputIOS: { color: '#000', padding: 10 },
+                  inputIOS: { color: '#000', padding: scale(10) },
                   inputAndroid: { color: '#000' },
                   placeholder: { color: '#999' },
                 }}
@@ -271,11 +272,11 @@ export default function CallHistoryScreen() {
           keyExtractor={(item, index) => String(item.id || index)}
           renderItem={renderItem}
           ListEmptyComponent={
-            <Text style={{ textAlign: 'center', marginTop: 20, color: '#666' }}>
+            <Text style={{ textAlign: 'center', marginTop: verticalScale(20), color: '#666' }}>
               No results to display.
             </Text>
           }
-          contentContainerStyle={{ paddingBottom: 70 }}
+          contentContainerStyle={{ paddingBottom: verticalScale(70) }}
           showsVerticalScrollIndicator={false}
         />
       )}
@@ -287,64 +288,64 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#eaf6f6',
-    paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingHorizontal: scale(16),
+    paddingTop: verticalScale(10),
   },
   heading: {
-    fontSize: 22,
+    fontSize: moderateScale(22),
     fontWeight: 'bold',
     color: '#fff',
     textAlign: 'center',
-    paddingVertical: 12,
-    marginBottom: 16,
-    borderRadius: 8,
+    paddingVertical: verticalScale(12),
+    marginBottom: verticalScale(16),
+    borderRadius: scale(8),
     backgroundColor: '#004C5C',
     elevation: 3,
   },
   form: {
-    marginBottom: 12,
-    padding: 12,
+    marginBottom: verticalScale(12),
+    padding: scale(12),
     backgroundColor: '#ffffff',
-    borderRadius: 12,
+    borderRadius: scale(12),
     shadowColor: '#000',
     shadowOpacity: 0.05,
-    shadowRadius: 6,
+    shadowRadius: scale(6),
     elevation: 4,
   },
   input: {
     borderWidth: 1,
     borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
+    borderRadius: scale(8),
+    padding: scale(12),
+    marginBottom: verticalScale(12),
     backgroundColor: '#f9f9f9',
-    fontSize: 16,
+    fontSize: moderateScale(16),
   },
   buttonRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginVertical: 10,
+    marginVertical: verticalScale(10),
   },
   button: {
     backgroundColor: '#004C5C',
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 30,
-    marginHorizontal: 5,
+    borderRadius: scale(8),
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(30),
+    marginHorizontal: scale(5),
   },
   buttonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontWeight: '600',
   },
   card: {
     backgroundColor: '#fff',
-    padding: 12,
-    marginVertical: 6,
-    borderRadius: 8,
+    padding: scale(12),
+    marginVertical: verticalScale(6),
+    borderRadius: scale(8),
     shadowColor: '#000',
     shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowRadius: scale(2),
     elevation: 2,
   },
   cardRow: {
@@ -352,28 +353,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   iconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: scale(44),
+    height: scale(44),
+    borderRadius: scale(22),
     justifyContent: 'center',
     alignItems: 'center',
   },
   phone: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontWeight: '600',
     color: '#222',
   },
   duration: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     color: '#888',
   },
   region: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     color: '#444',
     textAlign: 'right',
   },
   extension: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     color: '#888',
     textAlign: 'right',
   },

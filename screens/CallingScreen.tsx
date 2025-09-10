@@ -3,23 +3,20 @@ import {
   View, Text, StyleSheet, BackHandler, PermissionsAndroid,
   Platform, TouchableOpacity, Alert, Modal, FlatList
 } from 'react-native';
-import { WebView, WebViewMessageEvent } from 'react-native-webview';
+ 
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import InCallManager from 'react-native-incall-manager';
-import RNFS from 'react-native-fs';
 import Icon from 'react-native-vector-icons/Ionicons';
+import LinearGradient from 'react-native-linear-gradient';
 import { RootStackParamList } from '../App';
+import { useCall } from '../context/CallContext';
+import { useVoIPMethods } from '../context/VoIPServiceContext';
+
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CallingScreen'>;
-
-type Extension = {
-  id: number;
-  extension: string;
-  name: string;
-};
+type Extension = { id: number; extension: string; name: string; };
 
 const CallingScreen = ({ route, navigation }: Props) => {
-  const webviewRef = useRef<WebView>(null);
   const [ready, setReady] = useState(false);
   const [callStatus, setCallStatus] = useState('Connecting...');
   const [callDuration, setCallDuration] = useState('00:00');
@@ -27,16 +24,16 @@ const CallingScreen = ({ route, navigation }: Props) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   const [isOnHold, setIsOnHold] = useState(false);
-
   const [uniqueId, setUniqueId] = useState<string | null>(null);
-  const [Id, setId] = useState<string | null>(null);
   const [isEnding, setIsEnding] = useState(false);
-
   const [transferModalVisible, setTransferModalVisible] = useState(false);
   const [selectedExtension, setSelectedExtension] = useState<string | null>(null);
-
   const [availableExtensions, setAvailableExtensions] = useState<Extension[]>([]);
   const [loadingExtensions, setLoadingExtensions] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false);
+  const { call, setCall, callState, isCallConnected } = useCall();
+  const voipMethods = useVoIPMethods();
+
 
   const callStartTimeRef = useRef<Date | null>(null);
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -46,11 +43,6 @@ const CallingScreen = ({ route, navigation }: Props) => {
     numberToCall,
     sipCredentials: { username: sipUsername, password: sipPassword, wsServer, SIP_DOMAIN },
   } = route.params;
-
-  const HTML_URI =
-    Platform.OS === 'android'
-      ? 'file:///android_asset/html/index.html'
-      : `${RNFS.MainBundlePath}/html/index.html`;
 
   useEffect(() => {
     const requestPermissions = async () => {
@@ -65,21 +57,14 @@ const CallingScreen = ({ route, navigation }: Props) => {
         }
       }
       setReady(true);
+      // Rely on global VoIP engine registration; just request the call.
+      voipMethods?.makeCall(numberToCall);
     };
-
     requestPermissions();
 
     const back = BackHandler.addEventListener('hardwareBackPress', () => {
       handleHeaderBack();
       return true;
-    });
-
-    navigation.setOptions({
-      headerLeft: () => (
-        <TouchableOpacity onPress={handleHeaderBack}>
-          <Icon name="arrow-back" size={24} color="#007AFF" style={{ marginLeft: 15 }} />
-        </TouchableOpacity>
-      ),
     });
 
     return () => {
@@ -100,57 +85,43 @@ const CallingScreen = ({ route, navigation }: Props) => {
   };
 
   const handleHeaderBack = () => {
-    Alert.alert(
-      'End Call',
-      'Are you sure you want to end the call and go back?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Yes',
-          style: 'destructive',
-          onPress: () => {
-            endCallHandler();
-          },
-        },
-      ]
-    );
+    Alert.alert('End Call', 'Are you sure you want to end the call and go back?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Yes', style: 'destructive', onPress: () => endCallHandler() },
+    ]);
   };
-
-  const sendToWebView = (obj: object) =>
-    webviewRef.current?.postMessage(JSON.stringify(obj));
 
   const endCallHandler = () => {
     if (isEnding) return;
     setIsEnding(true);
-    sendToWebView({ type: 'hangup' });
-
+    // Tell global VoIP engine to hang up
+    try {
+      voipMethods?.hangupCall();
+    } catch (e) {
+      // no-op; just a safety net if context isn't ready
+    }
     forceEndTimerRef.current = setTimeout(() => {
       if (isEnding) {
-        console.warn('⚠️ No hangup response. Forcing cleanup.');
         setCallStatus('Call Ended');
         forceEndUI();
       }
-    }, 5000);
+    }, 1500);
   };
 
   const forceEndUI = () => {
-    cleanupResources();
-    setIsEnding(false);
+  cleanupResources();
+  setIsEnding(false);
 
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Home' }],
-      });
-    }
-  };
+  // ✅ Reset call state to prevent old caller info reappearing
+  setCall({ visible: false, from: '', accept: () => {}, decline: () => {} });
+
+  navigation.goBack();
+};
 
   const toggleMute = () => {
     const newMute = !isMuted;
     setIsMuted(newMute);
-    sendToWebView({ type: 'mute', mute: newMute });
+    try { voipMethods?.muteCall(newMute); } catch {}
     InCallManager.setMicrophoneMute(newMute);
   };
 
@@ -163,250 +134,182 @@ const CallingScreen = ({ route, navigation }: Props) => {
   const toggleHold = () => {
     const newHold = !isOnHold;
     setIsOnHold(newHold);
-    sendToWebView({ type: newHold ? 'hold' : 'resume' });
+    try { newHold ? voipMethods?.holdCall() : voipMethods?.resumeCall(); } catch {}
   };
 
   const handleTransferCall = () => {
     fetchAvailableExtensions().then(() => setTransferModalVisible(true));
   };
 
- const confirmTransfer = () => {
-  if (!selectedExtension) {
-    Alert.alert('Select an extension to transfer.');
-    return;
-  }
-
-  setCallStatus('Transferring...');
-  sendToWebView({
-    type: 'transfer',
-    target: selectedExtension,
-    domain: SIP_DOMAIN,
-  });
-
-  setTransferModalVisible(false);
-};
-
+  const confirmTransfer = () => {
+    if (!selectedExtension) {
+      Alert.alert('Select an extension to transfer.');
+      return;
+    }
+    setCallStatus('Transferring...');
+    setIsTransferring(true);
+    try { voipMethods?.transferCall(selectedExtension); } catch {}
+    setTransferModalVisible(false);
+  };
 
   const fetchAvailableExtensions = async () => {
     setLoadingExtensions(true);
     try {
-      const response = await fetch('https://dialer.cxteqconnect.com/Haridialer/api/extensions/list');
+      const response = await fetch('https://hariteq.com/HariDialer/public/api/extensions/list');
       const json = await response.json();
-
       if (json?.data && Array.isArray(json.data)) {
         const mapped: Extension[] = json.data.map((item: any) => ({
           id: item.id,
           extension: item.username,
-          name: item.client_name
+          name: item.client_name,
         }));
         setAvailableExtensions(mapped);
-      } else {
-        console.error('Unexpected response format', json);
-        Alert.alert('Error', 'Invalid response from server.');
       }
     } catch (err) {
-      console.error('Failed to fetch extensions', err);
       Alert.alert('Error', 'Could not fetch extensions.');
     } finally {
       setLoadingExtensions(false);
     }
   };
 
-  const handleWebViewMessage = (e: WebViewMessageEvent) => {
-    try {
-      const msg = JSON.parse(e.nativeEvent.data);
-
-      if (msg.type === 'log') return;
-
-      console.log('[WebView]', msg);
-
-      switch (msg.type) {
-        case 'ready':
-          sendToWebView({
-            type: 'register',
-            username: sipUsername,
-            password: sipPassword,
-            wsServer,
-            domain: SIP_DOMAIN,
-          });
-          break;
-
-        case 'registered':
-          setCallStatus('Registered');
-          if (!uniqueId) {
-            const clientGeneratedId = `client-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-            setUniqueId(clientGeneratedId);
-          }
-          setId(msg.id);
-          callStartTimeRef.current = new Date();
-          sendToWebView({ type: 'call', target: numberToCall, domain: SIP_DOMAIN });
-          break;
-
-        case 'calling':
-          setCallStatus('Calling...');
-          break;
-
-        case 'progress':
-          setCallStatus('Ringing...');
-          break;
-
-        case 'connected':
-          setCallStatus('In Call');
-          startCallTimer();
-          InCallManager.start({ media: 'audio' });
-          InCallManager.setMicrophoneMute(false);
-          InCallManager.setSpeakerphoneOn(true);
-          InCallManager.setForceSpeakerphoneOn(true);
-          break;
-
-        case 'ended':
-        case 'failed':
-          setCallStatus('Call Ended');
-          forceEndUI();
-          break;
-
-        case 'registrationFailed':
-          setCallStatus('Registration Failed');
-          forceEndUI();
-          break;
-
-        case 'callTimerUpdate':
-          const minutes = String(Math.floor(msg.duration / 60)).padStart(2, '0');
-          const seconds = String(msg.duration % 60).padStart(2, '0');
-          setCallDuration(`${minutes}:${seconds}`);
-
-          const recElapsed = Math.max(msg.duration - 2, 0);
-          setRecordingDuration(
-            `${String(Math.floor(recElapsed / 60)).padStart(2, '0')}:${String(recElapsed % 60).padStart(2, '0')}`
-          );
-          break;
-
-        default:
-          console.warn('⚠️ Unknown WebView message:', msg);
-      }
-    } catch (err) {
-      console.warn('WebView parsing failed:', err);
+  // Reflect global call state
+  useEffect(() => {
+    switch (callState) {
+      case 'ringing':
+      case 'outgoing':
+        setCallStatus('Ringing...');
+        break;
+      case 'connected':
+        setCallStatus('In Call');
+        break;
+      case 'ended':
+      case 'failed':
+        setCallStatus('Call Ended');
+        forceEndUI();
+        break;
+      default:
+        break;
     }
-  };
+  }, [callState]);
+
+  // Timer and audio routing based on connection
+  useEffect(() => {
+    if (isCallConnected) {
+      if (!callStartTimeRef.current) callStartTimeRef.current = new Date();
+      startCallTimer();
+      InCallManager.start({ media: 'audio' });
+      InCallManager.setSpeakerphoneOn(true);
+    } else {
+      if (callTimerRef.current) {
+        clearInterval(callTimerRef.current);
+        callTimerRef.current = null;
+      }
+    }
+  }, [isCallConnected]);
 
   const startCallTimer = () => {
     if (callTimerRef.current) return;
-
     callTimerRef.current = setInterval(() => {
-      const now = new Date();
-      const elapsed = Math.floor((now.getTime() - (callStartTimeRef.current?.getTime() || now.getTime())) / 1000);
+      const elapsed = Math.floor((Date.now() - (callStartTimeRef.current?.getTime() || 0)) / 1000);
       const minutes = String(Math.floor(elapsed / 60)).padStart(2, '0');
       const seconds = String(elapsed % 60).padStart(2, '0');
       setCallDuration(`${minutes}:${seconds}`);
-
-      const recElapsed = Math.max(elapsed - 2, 0);
-      setRecordingDuration(
-        `${String(Math.floor(recElapsed / 60)).padStart(2, '0')}:${String(recElapsed % 60).padStart(2, '0')}`
-      );
+      setRecordingDuration(`${String(Math.max(elapsed - 2, 0) / 60).padStart(2, '0')}:${String(Math.max(elapsed - 2, 0) % 60).padStart(2, '0')}`);
     }, 1000);
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.topBar}>
-        <Text style={styles.callTime}>📞 {callDuration} </Text>
-        <Text style={styles.recordTime}>/ 🔴 REC {recordingDuration}</Text>
+    <LinearGradient colors={['#eef2f3', '#dfe9f3']} style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.status}>{callStatus}</Text>
+        <Text style={styles.timer}>⏱ {callDuration}</Text>
       </View>
-
-      <Text style={styles.sipUsername}>{sipUsername}</Text>
 
       <View style={styles.avatarWrapper}>
-        <Icon name="headset" size={60} color="#999" />
+        <View style={styles.avatar}>
+          <Icon name="person-circle-outline" size={90} color="#007AFF" />
+        </View>
+        <Text style={styles.phoneNumber}>{numberToCall}</Text>
+        <Text style={styles.subText}>Connected as {sipUsername}</Text>
       </View>
-
-      <Text style={styles.phoneNumber}>{numberToCall}</Text>
 
       <View style={styles.controls}>
         <TouchableOpacity style={styles.iconCircle} onPress={toggleMute}>
-          <Icon name={isMuted ? 'mic-off' : 'mic'} size={24} color="#555" />
+          <Icon name={isMuted ? 'mic-off' : 'mic'} size={28} color="#333" />
+          <Text style={styles.iconLabel}>{isMuted ? 'Unmute' : 'Mute'}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.iconCircle} onPress={toggleHold}>
-          <Icon name={isOnHold ? 'play' : 'pause'} size={24} color="#555" />
+          <Icon name={isOnHold ? 'play' : 'pause'} size={28} color="#333" />
+          <Text style={styles.iconLabel}>{isOnHold ? 'Resume' : 'Hold'}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.iconCircle} onPress={toggleSpeaker}>
-          <Icon name={isSpeakerOn ? 'volume-mute' : 'volume-high'} size={24} color="#555" />
+          <Icon name="volume-high" size={28} color={isSpeakerOn ? '#007AFF' : '#333'} />
+          <Text style={styles.iconLabel}>Speaker</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.iconCircle} onPress={handleTransferCall}>
-          <Icon name="swap-horizontal" size={24} color="#555" />
+          <Icon name="swap-horizontal" size={28} color="#333" />
+          <Text style={styles.iconLabel}>Transfer</Text>
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity style={styles.endCallButton} onPress={endCallHandler}>
-        <Icon name="call" size={28} color="white" />
+        <Icon name="call" size={30} color="white" />
       </TouchableOpacity>
 
-      {ready && (
-        <WebView
-          ref={webviewRef}
-          source={{ uri: HTML_URI }}
-          javaScriptEnabled
-          onMessage={handleWebViewMessage}
-          originWhitelist={['*']}
-          allowFileAccess
-          allowFileAccessFromFileURLs
-          mediaPlaybackRequiresUserAction={false}
-          mixedContentMode="always"
-          allowsInlineMediaPlayback
-          style={{ height: 1, width: 1 }}
-        />
-      )}
+      {/* VoIP handled globally by VoIPEngine */}
 
-      <Modal visible={transferModalVisible} transparent animationType="slide">
+      <Modal visible={transferModalVisible} transparent animationType="fade">
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={{ fontSize: 16, marginBottom: 10 }}>Select Extension to Transfer</Text>
+            <Text style={styles.modalTitle}>Select Extension</Text>
             {loadingExtensions ? (
-              <Text>Loading extensions...</Text>
-            ) : availableExtensions.length === 0 ? (
-              <Text>No extensions available.</Text>
+              <Text>Loading...</Text>
             ) : (
-              <FlatList<Extension>
+              <FlatList
                 data={availableExtensions}
                 keyExtractor={(item) => item.extension}
                 renderItem={({ item }) => (
                   <TouchableOpacity
-                    style={[
-                      styles.extensionItem,
-                      item.extension === selectedExtension && { backgroundColor: '#ddd' }
-                    ]}
-                    onPress={() => setSelectedExtension(item.extension)}
-                  >
-                    <Text>{item.extension} - {item.name}</Text>
+                    style={[styles.extensionItem, item.extension === selectedExtension && styles.selectedItem]}
+                    onPress={() => setSelectedExtension(item.extension)}>
+                    <Text style={styles.extensionText}>{item.extension} - {item.name}</Text>
                   </TouchableOpacity>
                 )}
               />
             )}
-
             <TouchableOpacity style={styles.confirmButton} onPress={confirmTransfer}>
-              <Text style={{ color: '#fff' }}>Transfer</Text>
+              <Text style={styles.confirmText}>Transfer</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
-    </View>
+      
+
+    </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', paddingHorizontal: 20, justifyContent: 'space-between', paddingTop: 50, paddingBottom: 30 },
-  topBar: { flexDirection: 'row', justifyContent: 'center', alignItems: 'baseline', marginBottom: 10 },
-  callTime: { fontSize: 14, color: '#000' },
-  recordTime: { fontSize: 12, color: 'red', marginLeft: 8 },
-  sipUsername: { textAlign: 'center', fontSize: 16, color: '#007AFF', marginBottom: 20 },
-  avatarWrapper: { alignItems: 'center', marginBottom: 20 },
-  phoneNumber: { textAlign: 'center', fontSize: 20, fontWeight: '600', color: '#000', marginBottom: 30 },
-  controls: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginBottom: 20 },
-  iconCircle: { width: 60, height: 60, backgroundColor: '#eee', borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginHorizontal: 10, marginVertical: 5 },
-  endCallButton: { backgroundColor: '#FF3B30', width: 70, height: 70, borderRadius: 35, justifyContent: 'center', alignItems: 'center', alignSelf: 'center' },
+  container: { flex: 1 },
+  header: { paddingTop: 40, alignItems: 'center' },
+  status: { fontSize: 16, color: '#555' },
+  timer: { fontSize: 18, fontWeight: 'bold', color: '#007AFF', marginTop: 5 },
+  avatarWrapper: { alignItems: 'center', marginTop: 30 },
+  avatar: { backgroundColor: '#f5f5f5', padding: 10, borderRadius: 60, elevation: 4 },
+  phoneNumber: { fontSize: 22, fontWeight: 'bold', marginTop: 15, color: '#000' },
+  subText: { fontSize: 14, color: '#666', marginTop: 5 },
+  controls: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-evenly', marginTop: 50 },
+  iconCircle: { width: 80, height: 80, backgroundColor: '#f0f0f0', borderRadius: 40, justifyContent: 'center', alignItems: 'center', margin: 10, elevation: 2 },
+  iconLabel: { fontSize: 12, color: '#333', marginTop: 5 },
+  endCallButton: { backgroundColor: '#FF3B30', width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', alignSelf: 'center', marginVertical: 40, elevation: 5 },
   modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { backgroundColor: '#fff', padding: 20, borderRadius: 10, width: '80%' },
-  extensionItem: { padding: 10 },
-  confirmButton: { backgroundColor: '#007AFF', padding: 10, marginTop: 10, alignItems: 'center', borderRadius: 5 }
+  modalContent: { backgroundColor: '#fff', padding: 20, borderRadius: 10, width: '80%', maxHeight: '70%' },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+  extensionItem: { padding: 12, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  selectedItem: { backgroundColor: '#d6e4ff' },
+  extensionText: { fontSize: 14 },
+  confirmButton: { backgroundColor: '#007AFF', padding: 12, alignItems: 'center', marginTop: 10, borderRadius: 6 },
+  confirmText: { color: '#fff', fontWeight: 'bold' },
 });
 
 export default CallingScreen;

@@ -22,6 +22,9 @@ DerivedData
 *.xcuserstate
 **/.xcode.env.local
 
+# Android signing secrets
+android/keystore.properties
+
 # Android/IntelliJ
 #
 build/

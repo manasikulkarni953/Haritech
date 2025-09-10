@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,12 +10,16 @@ import {
   Dimensions,
   Linking,
   Platform,
+  TextInput
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Clipboard from '@react-native-clipboard/clipboard';
+import { useCall } from '../context/CallContext';
+ 
+
 
 const { width } = Dimensions.get('window');
 const BUTTON_SIZE = width / 3 - 50;
@@ -49,12 +53,21 @@ const DialerScreen = () => {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [selectedDisposition, setSelectedDisposition] = useState<string | null>(null);
   const [submittingDisposition, setSubmittingDisposition] = useState(false);
-
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<CallLog[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
   const navigation = useNavigation<any>();
+ 
+
+  const { call, setCall, showIncomingCall } = useCall();
+
+
+  // Incoming calls are handled globally by VoIPEngine + IncomingCallPopup
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: 'Dialling',
+      title: 'Recent Calls',
       headerTitleAlign: 'center',
       headerLeft: () => (
         <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: 15 }}>
@@ -78,7 +91,7 @@ const DialerScreen = () => {
       const token = await AsyncStorage.getItem('extensionToken');
       if (!token) return Alert.alert('Error', 'Authentication token not found. Please login again.');
 
-      const res = await axios.get(`https://dialer.cxteqconnect.com/Haridialer/api/all-call-history`, {
+      const res = await axios.get(`https://hariteq.com/HariDialer/public/api/all-call-history`, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
@@ -109,7 +122,68 @@ const DialerScreen = () => {
       setLoading(false);
     }
   };
+  const handleSearch = async (query: string) => {
+    setSearchQuery(query);
 
+    // Clear previous timeout if exists
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+
+    // If query is empty, reset search results
+    if (!query.trim()) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    // Set loading state and create new timeout
+    setIsSearching(true);
+
+    const newTimeout = setTimeout(async () => {
+      try {
+        const token = await AsyncStorage.getItem('extensionToken');
+        if (!token) {
+          Alert.alert('Error', 'Authentication token not found. Please login again.');
+          return;
+        }
+
+        const res = await axios.get(
+          `https://hariteq.com/HariDialer/public/api/all-call-history`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json',
+            },
+            params: { search: query },
+          }
+        );
+
+        const data = res.data.data || [];
+        const mappedResults: CallLog[] = data.map((item: any) => ({
+          id: `${item.id}`,
+          number: item.number_dialed,
+          time: new Date(item.start_time).toLocaleString(),
+          duration: `${item.duration} sec`,
+          extension: item.extension,
+          region: item.region,
+          disposition: item.disposition,
+          recording_url: item.recording_url,
+          type: item.duration === 0 ? 'missed' : 'outgoing',
+        }));
+
+        setSearchResults(mappedResults);
+      } catch (error) {
+        console.error('Search Error:', error);
+        Alert.alert('Error', 'Failed to search call logs');
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 500); // 500ms debounce delay
+
+    setSearchTimeout(newTimeout);
+  };
   const fetchCallDetails = async (call: CallLog) => {
     setSelectedCall(call);
     setShowModal(true);
@@ -122,7 +196,7 @@ const DialerScreen = () => {
         return;
       }
 
-      const res = await axios.get(`https://dialer.cxteqconnect.com/Haridialer/api/call-details/${call.id}`, {
+      const res = await axios.get(`https://hariteq.com/HariDialer/public/api/call-details/${call.id}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
@@ -150,98 +224,98 @@ const DialerScreen = () => {
     }
   };
   const submitDisposition = async () => {
-  if (!selectedDisposition || !selectedCall) return;
+    if (!selectedDisposition || !selectedCall) return;
 
-  setSubmittingDisposition(true);
+    setSubmittingDisposition(true);
 
-  try {
-    const token = await AsyncStorage.getItem('extensionToken');
-    if (!token) {
-      Alert.alert('Error', 'Authentication token not found. Please login again.');
-      setSubmittingDisposition(false);
-      return;
-    }
-
-    const res = await axios.post(
-      `https://dialer.cxteqconnect.com/Haridialer/api/update-disposition`,
-      {
-        id: selectedCall.id,
-        disposition: selectedDisposition,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-        },
-        timeout: 30000, // wait longer
-        validateStatus: () => true, // treat all responses as resolved
+    try {
+      const token = await AsyncStorage.getItem('extensionToken');
+      if (!token) {
+        Alert.alert('Error', 'Authentication token not found. Please login again.');
+        setSubmittingDisposition(false);
+        return;
       }
-    );
 
-    console.log('Disposition API response:', res.status, res.data);
-
-    if (res.status >= 200 && res.status < 300 && res.data?.message) {
-      Alert.alert('✅ Success', res.data.message);
-    } else if (res.status >= 400 && res.status < 600) {
-      Alert.alert(
-        '⚠️ Notice',
-        `Server responded with status ${res.status}. Disposition may still have been saved. Please refresh to check.`
+      const res = await axios.post(
+        `https://hariteq.com/HariDialer/public/api/update-disposition`,
+        {
+          id: selectedCall.id,
+          disposition: selectedDisposition,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+          },
+          timeout: 30000, // wait longer
+          validateStatus: () => true, // treat all responses as resolved
+        }
       );
-    } else {
-      Alert.alert('✅ Submitted', 'Disposition submission complete. Please verify.');
-    }
 
-    // Update UI anyway
-    setCallDetails((prev: any) => ({
-      ...prev,
-      disposition: selectedDisposition,
-    }));
+      console.log('Disposition API response:', res.status, res.data);
 
-    setCallLogs((prevLogs) =>
-      prevLogs.map((log) =>
-        log.id === selectedCall.id
-          ? { ...log, disposition: selectedDisposition }
-          : log
-      )
-    );
-
-    setTimeout(() => {
-      setSelectedDisposition(null);
-      setShowModal(false);
-      setCallDetails(null);
-      setSelectedCall(null);
-    }, 300);
-
-  } catch (err: any) {
-    console.error('SubmitDisposition error:', err);
-
-    if (axios.isAxiosError(err)) {
-      if (err.code === 'ECONNABORTED') {
+      if (res.status >= 200 && res.status < 300 && res.data?.message) {
+        Alert.alert('✅ Success', res.data.message);
+      } else if (res.status >= 400 && res.status < 600) {
         Alert.alert(
-          '⏳ Timeout',
-          'Request timed out. Please check later if disposition was saved.'
+          '⚠️ Notice',
+          `Server responded with status ${res.status}. Disposition may still have been saved. Please refresh to check.`
         );
       } else {
+        Alert.alert('✅ Submitted', 'Disposition submission complete. Please verify.');
+      }
+
+      // Update UI anyway
+      setCallDetails((prev: any) => ({
+        ...prev,
+        disposition: selectedDisposition,
+      }));
+
+      setCallLogs((prevLogs) =>
+        prevLogs.map((log) =>
+          log.id === selectedCall.id
+            ? { ...log, disposition: selectedDisposition }
+            : log
+        )
+      );
+
+      setTimeout(() => {
+        setSelectedDisposition(null);
+        setShowModal(false);
+        setCallDetails(null);
+        setSelectedCall(null);
+      }, 300);
+
+    } catch (err: any) {
+      console.error('SubmitDisposition error:', err);
+
+      if (axios.isAxiosError(err)) {
+        if (err.code === 'ECONNABORTED') {
+          Alert.alert(
+            '⏳ Timeout',
+            'Request timed out. Please check later if disposition was saved.'
+          );
+        } else {
+          Alert.alert(
+            '⚠️ Network error',
+            'A network error occurred. Please try again later.'
+          );
+        }
+      } else {
         Alert.alert(
-          '⚠️ Network error',
-          'A network error occurred. Please try again later.'
+          '⚠️ Unexpected error',
+          'Something went wrong. Please try again.'
         );
       }
-    } else {
-      Alert.alert(
-        '⚠️ Unexpected error',
-        'Something went wrong. Please try again.'
-      );
+    } finally {
+      setSubmittingDisposition(false);
     }
-  } finally {
-    setSubmittingDisposition(false);
-  }
-};
+  };
 
 
   const handleLogout = async () => {
     await AsyncStorage.clear();
-    navigation.reset({ index: 0, routes: [{ name: 'SelectAccountType' }] });
+    navigation.reset({ index: 0, routes: [{ name: 'Agent' }] });
   };
 
   const sanitizeInput = (input: string) => input.replace(/[^0-9*#]/g, '');
@@ -253,11 +327,11 @@ const DialerScreen = () => {
     if (!number) return Alert.alert('Invalid', 'Please enter a number.');
 
     await AsyncStorage.setItem('lastDialedNumber', number);
-   const [sipUsername, sipPassword, extensionId] = await Promise.all([
-  AsyncStorage.getItem('extensionUsername'),
-  AsyncStorage.getItem('extensionPassword'),
-  AsyncStorage.getItem('extensionId'),
-]);
+    const [sipUsername, sipPassword, extensionId] = await Promise.all([
+      AsyncStorage.getItem('extensionUsername'),
+      AsyncStorage.getItem('extensionPassword'),
+      AsyncStorage.getItem('extensionId'),
+    ]);
 
     if (!sipUsername || !sipPassword) {
       Alert.alert('Missing SIP Credentials', 'Login again.');
@@ -308,7 +382,7 @@ const DialerScreen = () => {
             {item.time} • {item.duration} • Ext: {item.extension}
           </Text>
         </View>
- <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           {!hasDisposition && (
             <View
               style={{
@@ -335,24 +409,49 @@ const DialerScreen = () => {
   };
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Recent Calls</Text>
+      <View style={styles.headerContainer}>
+
+        <View style={styles.searchContainer}>
+          <Icon
+            name="search"
+            size={20}
+            color="#95a5a6"
+            style={styles.searchIcon}
+          />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by number..."
+            value={searchQuery}
+            onChangeText={handleSearch}
+            placeholderTextColor="#95a5a6"
+            clearButtonMode="while-editing"
+          />
+
+          {isSearching && <ActivityIndicator size="small" color="#004C5C" style={styles.searchLoading} />}
+        </View>
+      </View>
 
       {loading ? (
         <ActivityIndicator size="large" color="#004C5C" />
       ) : (
         <FlatList
-          data={callLogs}
+          data={searchQuery ? searchResults : callLogs}
           keyExtractor={(item) => `${item.id}`}
           renderItem={renderRecentCall}
-          onEndReached={() => hasMore && loadCallLogs()}
+          onEndReached={() => !searchQuery && hasMore && loadCallLogs()}
           onEndReachedThreshold={0.5}
-          ListFooterComponent={hasMore ? <ActivityIndicator size="small" /> : null}
+          ListFooterComponent={
+            searchQuery ? null : hasMore ? <ActivityIndicator size="small" /> : null
+          }
           onScroll={() => showDialPad && setShowDialPad(false)}
-          extraData={callLogs.map(c => c.disposition).join(',')}
+          extraData={[...callLogs, ...searchResults].map(c => c.disposition).join(',')}
+          ListEmptyComponent={
+            searchQuery && !isSearching && searchResults.length === 0 ? (
+              <Text style={styles.noResultsText}>No matching calls found</Text>
+            ) : null
+          }
         />
-
       )}
-
       {showDialPad && (
         <View style={styles.dialPadWrapper}>
           <View style={styles.displayBox}>
@@ -487,7 +586,7 @@ const DialerScreen = () => {
                   <View style={{ marginTop: 20 }}>
                     <TouchableOpacity
                       onPress={() =>
-                        Linking.openURL(`https://dialer.cxteqconnect.com/Haridialer/download-recording/${selectedCall?.id}`)
+                        Linking.openURL(`https://hariteq.com/HariDialer/public/api/download-recording/${selectedCall?.id}`)
                       }
                       style={styles.recordingButton}
                     >
@@ -497,7 +596,7 @@ const DialerScreen = () => {
 
                     <TouchableOpacity
                       onPress={() =>
-                        Linking.openURL(`https://dialer.cxteqconnect.com/Haridialer/download-recording/${selectedCall?.id}`)
+                        Linking.openURL(`https://hariteq.com/HariDialer/public/api/download-recording/${selectedCall?.id}`)
                       }
                       style={[styles.recordingButton, { backgroundColor: '#34495e', marginTop: 10 }]}
                     >
@@ -522,6 +621,8 @@ const DialerScreen = () => {
           </View>
         </View>
       )}
+      {/* SIP WebView is managed globally; no per-screen hidden WebView here */}
+
     </View>
   );
 };
@@ -551,6 +652,36 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
+  },
+  headerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ecf0f1',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    color: '#2c3e50',
+    paddingVertical: 8,
+  },
+  searchLoading: {
+    marginLeft: 8,
+  },
+  noResultsText: {
+    textAlign: 'center',
+    marginTop: 20,
+    color: '#7f8c8d',
   },
   dialPadContainer: {
     flexDirection: 'row',
@@ -591,7 +722,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 3,
-    marginBottom: 10, 
+    marginBottom: 10,
   },
   iconButton: {
     width: 60,
